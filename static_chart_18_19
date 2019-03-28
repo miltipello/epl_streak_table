@@ -1,0 +1,124 @@
+# scrape premier league scores, build own weekly table
+# then use this to plot positions week by week.
+
+#Load packages required to scrape Premier League website (https://fantasy.premierleague.com)
+library(rvest)
+library(httr)
+library(jsonlite)
+
+#Load packages required to build final graphic
+library(gganimate)
+library(ggimage)
+library(gifski)
+library(png)
+
+#Load packages required to manipulate data
+library(tidyverse)
+
+#Create theme to customise the output
+s_theme2 <- function(){
+  theme(#legend.position = "none",
+    panel.background = element_blank(),
+    panel.grid.major.y = element_line(color = "grey80"),
+    axis.line.x = element_line(color = "grey80"),
+    axis.line.y = element_line(color = "grey80"),
+    text = element_text(family = "Mary Ann Medium"),
+    plot.title = element_text(size = 20),
+    plot.subtitle = element_text(size = 12),
+    plot.background = element_rect(fill = "#F6F6F6" ),
+    axis.title = element_text(size = 14),
+    legend.position = "top",
+    legend.text.align = 0,
+    legend.background = element_blank(),
+    legend.title = element_text(size = 15), legend.key = element_blank(),
+    legend.text = element_text(family = "Mary Ann", size = 18, color = "#222222"),
+    legend.spacing.x = unit(0.3, "cm")
+  ) }
+
+#Extract team IDs from Premier League website
+url <- paste0("https://fantasy.premierleague.com/drf/fixtures/?event=1")
+gameweek <- fromJSON(url) %>% as_tibble
+
+#Create team list
+all_teams <- c("Man United",
+              "Newcastle",
+              "Bournemouth",
+              "Fulham",
+              "Huddersfield",
+              "Watford",
+              "Wolves",
+              "Liverpool",
+              "Southampton",
+              "Arsenal",
+              "Leicester",
+              "Tottenham",
+              "Cardiff",
+              "Chelsea",
+              "Crystal Palace",
+              "Brighton",
+              "Everton",
+              "West Ham",
+              "Burnley",
+              "Man City"
+)
+
+#Create lookup ID for each team
+team_id_lookup = tibble(teams = c(gameweek$team_a, gameweek$team_h) %>% sort,
+                        team_name = all_teams %>% sort)
+
+#Create blank list to populate with data
+games = list()
+
+#Extract data from Premier League Website
+for (gw in 1:31){
+  url = url = paste0("https://fantasy.premierleague.com/drf/fixtures/?event=",gw)
+  gameweek = fromJSON(url) %>% as_tibble
+  games[[gw]] = tibble()
+
+  #Assign points for win, loss or draw
+  gameweek = gameweek %>% mutate(points_a = if_else(team_a_score > team_h_score, 3, if_else(team_a_score == team_h_score, 1, 0)),
+                                 points_h = if_else(team_a_score < team_h_score, 3, if_else(team_a_score == team_h_score, 1, 0)))
+  
+  games[[gw]] = bind_rows(games[[gw]],
+                          tibble(gameno = c(gameweek$kickoff_time,gameweek$kickoff_time),
+                                 teams = c(gameweek$team_a, gameweek$team_h),
+                                 scoredGoals = c(gameweek$team_a_score, gameweek$team_h_score),
+                                 against = c(gameweek$team_h_score, gameweek$team_a_score),
+                                 points = c(gameweek$points_a, gameweek$points_h))) %>% arrange(gameno,desc(points),teams) %>%
+    inner_join(team_id_lookup)
+  print(gw)
+}
+
+#Print example table from code above to review
+print(games[1])
+
+bigtable = tibble()
+table = tibble(team = all_teams, gp = 0, gf = 0, ga = 0,points = 0) %>% arrange(team)
+bigtable = table %>% mutate(gw = 0, position = 1:20)
+
+pointstable = tibble()
+
+for (day in 1:length(games)){
+  
+  if(day != 1) table = tail(bigtable, 20)
+  table$gw = day
+  for (j in 1:nrow(games[[day]])){
+    
+    t = games[[day]]$team_name[j]
+    gf = games[[day]]$scoredGoals[j]
+    ga = games[[day]]$against[j]
+    points = games[[day]]$points[j]
+    table[table$team == t,]$gp = table[table$team == t,]$gp + 1
+    table[table$team == t,]$gf = table[table$team == t,]$gf + gf
+    table[table$team == t,]$ga = table[table$team == t,]$ga + ga
+    table[table$team == t,]$points = table[table$team == t,]$points + points
+  }
+  table$date = day
+  table = table %>%
+    arrange(-points, -(gf - ga), team) %>% mutate(gd = gf - ga,
+                                                  position = row_number())
+  bigtable = bigtable %>% bind_rows(table)
+  print(day)
+}
+
+print(day)
